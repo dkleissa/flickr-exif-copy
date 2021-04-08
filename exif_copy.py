@@ -4,13 +4,18 @@ import glob
 import argparse
 import sys
 import re
+import os
 import datetime
 from tqdm import tqdm
 
 from PIL import Image
 import piexif
 
-if "win" in sys.platform:
+SUPPORTED_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.mp4']
+EXIF_EXTENSIONS = ['.jpg', '.jpeg']
+
+if "win32" in sys.platform:
+    print("Running on windows.")
     # if on windows, let's try to set the file create time too
     from win32_setctime import setctime
 
@@ -30,37 +35,37 @@ def build_id_map(img_dir: str) -> dict:
 
     id_re = re.compile(pattern)
 
-    if "win" in sys.platform:
-        glob_path = str(Path(img_dir) / Path("*.jpg"))
-    else:
-        glob_path = str(PureWindowsPath(img_dir) / PureWindowsPath("*.jpg"))
-
-    for i in tqdm(glob.glob(glob_path)):
-        img = Path(i)
-        result = id_re.findall(img.name)
-        if len(result) == 1:
-            id_map[result[0]] = img
+    for extension in SUPPORTED_EXTENSIONS:
+        if "win32" in sys.platform:
+            glob_path = str(PureWindowsPath(img_dir) / PureWindowsPath(f"*{extension}"))
         else:
-            print(f"Failed to detect flickr ID: {img}")
+            glob_path = str(Path(img_dir) / Path(f"*{extension}"))
+
+        for i in tqdm(glob.glob(glob_path)):
+            img = Path(i)
+            result = id_re.findall(img.name)
+            if len(result) == 1:
+                id_map[result[0]] = img
+            else:
+                print(f"Failed to detect flickr ID: {img}")
 
     return id_map
 
 
-def apply_exif(id_map: dict, metadata_dir: str, fields: list) -> None:
-    """
+def apply_exif(id_map: dict, metadata_dir: str) -> None:
+    """Function to update create date metadata
 
     Args:
         id_map:
         metadata_dir:
-        fields:
 
     Returns:
 
     """
-    if "win" in sys.platform:
-        glob_path = str(Path(metadata_dir) / Path("*.json"))
-    else:
+    if "win32" in sys.platform:
         glob_path = str(PureWindowsPath(metadata_dir) / PureWindowsPath("*.json"))
+    else:
+        glob_path = str(Path(metadata_dir) / Path("*.json"))
 
     for m in tqdm(glob.glob(glob_path)):
         with open(m, 'rt') as mf:
@@ -68,31 +73,35 @@ def apply_exif(id_map: dict, metadata_dir: str, fields: list) -> None:
 
         if id_map.get(metadata['id']):
             filename = id_map.get(metadata['id'])
-            im = Image.open(filename)
-            exif_dict = piexif.load(im.info["exif"])
+            _, ext = os.path.splitext(filename)
+            if ext in EXIF_EXTENSIONS:
+                im = Image.open(filename)
+                exif_dict = piexif.load(im.info["exif"])
 
-            #exif_bytes = piexif.dump(exif_dict)
-            #im.save(filename, exif=exif_bytes)
+                # Date format is YYYY:MM:DD HH:MM:SS"
+                exif_dict['0th'][piexif.ImageIFD.DateTime] = metadata['date_taken']
+                exif_dict['Exif'][piexif.ExifIFD.DateTimeOriginal] = metadata['date_taken']
+                exif_dict['Exif'][piexif.ExifIFD.DateTimeDigitized] = metadata['date_taken']
+                exif_bytes = piexif.dump(exif_dict)
+                piexif.insert(exif_bytes, str(filename))
 
-            # Date format is YYYY:MM:DD HH:MM:SS"
-            #metadata_date = datetime.datetime.strptime(metadata['date_taken'], '%Y-%m-%d %H:%M:%S')
-            #new_date = metadata_date.strftime("%Y:%m:%d %H:%M:%S")
-            exif_dict['0th'][piexif.ImageIFD.DateTime] = metadata['date_taken']
-            exif_dict['Exif'][piexif.ExifIFD.DateTimeOriginal] = metadata['date_taken']
-            exif_dict['Exif'][piexif.ExifIFD.DateTimeDigitized] = metadata['date_taken']
-            exif_bytes = piexif.dump(exif_dict)
-            piexif.insert(exif_bytes, str(filename))
-
-            if "win" in sys.platform:
+            if "win32" in sys.platform:
                 metadata_date = datetime.datetime.strptime(metadata['date_taken'], '%Y-%m-%d %H:%M:%S')
                 setctime(str(filename), metadata_date.timestamp())
 
 
-def update_images(img_dir: str, metadata_dir: str, fields: list):
+def update_images(img_dir: str, metadata_dir: str):
+    if "win32" in sys.platform:
+        print("Starting with Windows features enabled.")
+    else:
+        print("Starting with Windows features disabled.")
+
     print("Extracting IDs from image dir...")
     id_map = build_id_map(img_dir)
+    print()
     print("Applying exif update to image dir...")
-    apply_exif(id_map, metadata_dir, fields)
+    apply_exif(id_map, metadata_dir)
+    print()
     print("Done!")
 
 
@@ -100,7 +109,6 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--img-dir', help='Image Directory', type=str)
     parser.add_argument('--metadata-dir', help='Metadata Directory', type=str)
-    parser.add_argument('-f', '--field', nargs='+', help='<Required> Fields to try to copy', required=False)
     args = parser.parse_args()
 
-    update_images(args.img_dir, args.metadata_dir, args.field)
+    update_images(args.img_dir, args.metadata_dir)
