@@ -20,7 +20,7 @@ on your computer. Download and install Miniconda3 Windows 64-bit4 with Python 3.
 Once installed, you'll have an "Anaconda Prompt" available as an application.
 
 ### Download this code
-You can git clone if you know how to do that. If now, download the zip from Github and
+You can git clone if you know how to do that. If now, [download the zip](https://github.com/dkleissa/flickr-exif-copy/archive/refs/heads/main.zip) from Github and
 extract it somewhere.
 
 ### Setup the environment
