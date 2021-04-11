@@ -36,6 +36,7 @@ def build_id_map(img_dir: str) -> dict:
     id_re = re.compile(pattern)
 
     for extension in SUPPORTED_EXTENSIONS:
+        print(f"Processing {extension} files...")
         if "win32" in sys.platform:
             glob_path = str(PureWindowsPath(img_dir) / PureWindowsPath(f"*{extension}"))
         else:
@@ -44,8 +45,8 @@ def build_id_map(img_dir: str) -> dict:
         for i in tqdm(glob.glob(glob_path)):
             img = Path(i)
             result = id_re.findall(img.name)
-            if len(result) == 1:
-                id_map[result[0]] = img
+            if len(result) >= 1:
+                id_map[result[-1]] = img
             else:
                 print(f"Failed to detect flickr ID: {img}")
 
@@ -68,26 +69,32 @@ def apply_exif(id_map: dict, metadata_dir: str) -> None:
         glob_path = str(Path(metadata_dir) / Path("*.json"))
 
     for m in tqdm(glob.glob(glob_path)):
-        with open(m, 'rt') as mf:
-            metadata = json.load(mf)
+        try:
+            with open(m, 'rt') as mf:
+                metadata = json.load(mf)
 
-        if id_map.get(metadata['id']):
-            filename = id_map.get(metadata['id'])
-            _, ext = os.path.splitext(filename)
-            if ext in EXIF_EXTENSIONS:
-                im = Image.open(filename)
-                exif_dict = piexif.load(im.info["exif"])
+            fid = metadata.get('id')
+            if not fid:
+                print(f'Metadata file corrupt. Missing ID for file {m}')
+            if id_map.get(metadata['id']):
+                filename = id_map.get(metadata['id'])
+                _, ext = os.path.splitext(filename)
+                if ext in EXIF_EXTENSIONS:
+                    im = Image.open(filename)
+                    exif_dict = piexif.load(im.info["exif"])
 
-                # Date format is YYYY:MM:DD HH:MM:SS"
-                exif_dict['0th'][piexif.ImageIFD.DateTime] = metadata['date_taken']
-                exif_dict['Exif'][piexif.ExifIFD.DateTimeOriginal] = metadata['date_taken']
-                exif_dict['Exif'][piexif.ExifIFD.DateTimeDigitized] = metadata['date_taken']
-                exif_bytes = piexif.dump(exif_dict)
-                piexif.insert(exif_bytes, str(filename))
+                    # Date format is YYYY:MM:DD HH:MM:SS"
+                    exif_dict['0th'][piexif.ImageIFD.DateTime] = metadata['date_taken']
+                    exif_dict['Exif'][piexif.ExifIFD.DateTimeOriginal] = metadata['date_taken']
+                    exif_dict['Exif'][piexif.ExifIFD.DateTimeDigitized] = metadata['date_taken']
+                    exif_bytes = piexif.dump(exif_dict)
+                    piexif.insert(exif_bytes, str(filename))
 
-            if "win32" in sys.platform:
-                metadata_date = datetime.datetime.strptime(metadata['date_taken'], '%Y-%m-%d %H:%M:%S')
-                setctime(str(filename), metadata_date.timestamp())
+                if "win32" in sys.platform:
+                    metadata_date = datetime.datetime.strptime(metadata['date_taken'], '%Y-%m-%d %H:%M:%S')
+                    setctime(str(filename), metadata_date.timestamp())
+        except Exception as err:
+            print(f"An error occurred applying the date_taken for {m}: {err}")
 
 
 def update_images(img_dir: str, metadata_dir: str):
